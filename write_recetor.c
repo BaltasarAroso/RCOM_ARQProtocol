@@ -1,4 +1,4 @@
-/*Non-Canonical Input Processing*/
+ /*Non-Canonical Input Processing*/
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -29,8 +29,8 @@
 #define ESC         0x7d    //0111 1101
 #define ESC_AUX     0x7d5d  //0111 1101 0101 1101 
 
-#define FR_A_RX     0x03    //0000 0011 
-#define FR_A_TX     0x01    //0000 0001
+#define FR_A_TX     0x03    //0000 0011 
+#define FR_A_RX     0x01    //0000 0001
 
 #define FR_C_SET    0x03    //0000 0011
 #define FR_C_DISC   0x0B    //0000 1011
@@ -127,19 +127,33 @@ int main(int argc, char** argv)
 			perror ("llopen()");
 			exit(-1);
 		}
+		fprintf(stderr, "LLOPEN DONE\n");
 		if (llwrite(fd,"Baltas- ar\n",10) < 0){
 			perror ("llwrite()");
 			exit(-1);
 		}
+		fprintf(stderr, "LLWRITE DONE\n");
+		if (llclose(fd)!=0){
+			perror ("llclose()");
+			exit(-1);
+		}
+		fprintf(stderr, "LLCLOSE DONE\n");
 	} else if(strncmp(buf, "RX", 2) == 0) {
 		if (llopen(fd, RX) < 0){
 			perror ("llopen()");
 			exit(-1);
 		}
+		fprintf(stderr, "LLOPEN DONE\n");
 		if (llread(fd,teste) < 0){
 			perror ("llread()");
 			exit(-1);
 		}
+		fprintf(stderr, "LLREAD DONE\n");
+		if (llclose(fd)!=0){
+			perror ("llclose()");
+			exit(-1);
+		}
+		fprintf(stderr, "LLCLOSE DONE\n");
 	} else {
 		perror("Bad input: Use 'RX' or 'TX' as an argument");
 		exit(-1);
@@ -149,9 +163,9 @@ int main(int argc, char** argv)
 
 
 	/*Camada de aplicacao*/
-	//START
+	//START ou END
 	/*int i = 0, j = 0, tam_V1 = 0; tam_V2 = 0;
-	if (frame_read[4]==0x02){
+	if (frame_read[4]==0x02 || frame_read[4]==0x03){
 		buffer[0] = frame_read[4];
 		buffer[1] = frame_read[5];
 		buffer[2] = frame_read[6];
@@ -166,14 +180,27 @@ int main(int argc, char** argv)
 		for(i=j; i<tam_V2+j; i++){
 			buffer[i] = frame_read[i+4];
 		}
-	}*/
+	}
 	//INFO
-	/*if(frame_read[4]==0x00){
+	if(frame_read[4]==0x00){
+		buffer[0] = frame_read[4];
+		//N
+		buffer[1] = frame_read[5];
+		int N = (int)strtol(buffer[1], NULL, 0);
 
-	}*/
-	//END
-	/*if(frame_read[4]==0x03){
+		//L2
+		buffer[2] = frame_read[6];
+		int L2 = (int)strtol(buffer[2], NULL, 0);
 
+		//L1
+		buffer[3] = frame_read[7];
+		int L1 = (int)strtol(buffer[3], NULL, 0);
+		
+		//k
+		int k = L2*N+L1;
+		for(i=4; i<k+4; i++){
+			buffer[i] = frame_read[i+4];
+		}
 	}*/
  
 
@@ -202,14 +229,14 @@ int llopen(int port, int MODE){
 
 	/* SET */
 	SET[0] = FR_F;
-	SET[1] = FR_A_RX;
+	SET[1] = FR_A_TX;
 	SET[2] = FR_C_SET;
 	SET[3] = SET[1]^SET[2];
 	SET[4] = FR_F;
 
 	/* UA */
 	UA[0] = FR_F;
-	UA[1] = FR_A_RX;
+	UA[1] = FR_A_TX;
 	UA[2] = FR_C_UA;
 	UA[3] = UA[1]^UA[2];
 	UA[4] = FR_F;
@@ -220,6 +247,7 @@ init:
 		res = write(port, SET, 5);
 		if((oldtime = time(NULL)) < 0){
 			perror("timer");
+			return -1;
 		}
 
 		fprintf(stderr, "\nSET frame sent: |%x|%x|%x|%x|%x|;\t bytes sent: %d\n\n", SET[0], SET[1], SET[2], SET[3], SET[4], res);
@@ -229,7 +257,7 @@ init:
 			res = read(port, &frame_read[b], 1);
 			if(res == 0) {
 				if(time(NULL) - oldtime >= 3){
-					fprintf(stderr, "Warning: connection timed out; Re-sending message...\n");
+					fprintf(stderr, "Warning: connection time-out; Re-sending message...\n");
 					bad++;
 					if(bad >= 3){
 						state = 1;
@@ -258,24 +286,25 @@ init:
 		}
 
 		//VER SE RECEBEU UA
-		if(strncmp(frame_read, UA, 5) != 0) {
-			fprintf(stderr, "BAD BAD WOLF TX\n");
+		if(strncmp(frame_read, UA, 5) != 0) {  //recebeu mensagem diferente de UA, sai da função
+			fprintf(stderr, "Unexpected message received; Aborting connection...\n");
 			return -1;
 		} else {
-			fprintf(stderr, "GOOD DOGGY DOG TX\n");
+			fprintf(stderr, "Connection successfully established.\n");
 		}
 
 	} else if(MODE == RX) {
 
 		if((oldtime = time(NULL)) < 0){
 			perror("timer");
+			return -1;
 		}
 		//LEITURA DE SET
 		while(state == 0){
 			res = read(port, &frame_read[b], 1);
 			if(res == 0) {
 				if(time(NULL) - oldtime >= 18){
-					fprintf(stderr, "Warning: timed-out; no request received...\n");
+					fprintf(stderr, "Warning: time-out; no request received...\n");
 					return -1;
 				} else {
 					continue;
@@ -299,11 +328,12 @@ init:
 
 		/*VER SE RECEBEU SET CORRETAMENTE*/
 		if(strncmp(frame_read, SET, 5) != 0) {
-			fprintf(stderr, "BAD BAD WOLF RX\n");
 			if(bad < 3) {
+				fprintf(stderr, "SET message not received correctly; Trying again...\n");
 				bad++;
 				goto init;
 			} else {
+				fprintf(stderr, "Attempt limit reached; exiting...\n");
 				return -1;
 			}
 		} else {
@@ -312,6 +342,7 @@ init:
 			//ENVIAR UA
 			res = write(port, UA, 5);
 			fprintf(stderr, "\nUA frame sent: |%x|%x|%x|%x|%x|;\t bytes sent: %d\n\n", UA[0], UA[1], UA[2], UA[3], UA[4], res);
+
 		}
 
 	} else {
@@ -320,6 +351,7 @@ init:
 
 	
 	return 0;
+
 }
 
 int llwrite(int port, char* buffer, int length) {
@@ -333,7 +365,7 @@ int llwrite(int port, char* buffer, int length) {
 
 	//RR
 	RR[0] = FR_F;
-	RR[1] = FR_A_RX;
+	RR[1] = FR_A_TX;
 	if(sendNumber == 0) {
 		RR[2] = FR_C_RR1;
 	} else if(sendNumber == 1) {
@@ -344,7 +376,7 @@ int llwrite(int port, char* buffer, int length) {
 
 	//REJ
 	REJ[0] = FR_F;
-	REJ[1] = FR_A_RX;
+	REJ[1] = FR_A_TX;
 	if(sendNumber == 0) {  //R = 1 - S
 		REJ[2] = FR_C_REJ1;
 	} else if(sendNumber == 1) {
@@ -355,7 +387,7 @@ int llwrite(int port, char* buffer, int length) {
 
 	//construir trama
 	frame[b++] = FR_F;  //Flag inicial
-	frame[b++] = FR_A_RX;  //campo A
+	frame[b++] = FR_A_TX;  //campo A
 	if(sendNumber == 0) {   //campo C
 		frame[b++] = FR_C_SEND0;
 	} else if(sendNumber == 1) {
@@ -408,7 +440,7 @@ int llwrite(int port, char* buffer, int length) {
 					res = read(port, &answer[b], 1);
 					if(res == 0) {
 						if(time(NULL) - oldtime >= 3){ //time out
-							fprintf(stderr, "Warning: connection timed out; Re-sending message...\n");
+							fprintf(stderr, "Warning: connection time-out; Re-sending message...\n");
 							bad++;
 							if(bad >= 3){
 								fprintf(stderr, "Error: Connection timed out.\n");
@@ -465,17 +497,19 @@ int llread(int port, char *buffer){
 
 	/* RR */
 	RR[0] = FR_F;
-	RR[1] = FR_A_RX;
+	RR[1] = FR_A_TX;
 	RR[2] = FR_C_RR0;   //standard
 	RR[3] = RR[1]^RR[2];
 	RR[4] = FR_F;
 
 	/* REJ */
 	REJ[0] = FR_F;
-	REJ[1] = FR_A_RX;
+	REJ[1] = FR_A_TX;
 	REJ[2] = FR_C_REJ0; //standard
 	REJ[3] = REJ[1]^REJ[2];
 	REJ[4] = FR_F;	
+
+
 
 	//ler a trama	
 init:
@@ -486,8 +520,8 @@ init:
 	while(state == 0){
 		res = read(port, &frame_read[b], 1);
 		if(res == 0) {
-			/*if(time(NULL) - oldtime >= 3){
-				fprintf(stderr, "Warning: connection timed out; Re-sending message...\n");
+			if(time(NULL) - oldtime >= 3){
+				fprintf(stderr, "Warning: connection time-out; Re-sending message...\n");
 				bad++;
 				if(bad >= 3){
 					state = 1;
@@ -497,7 +531,7 @@ init:
 					goto init;
 				}
 				oldtime = time(NULL);
-			}*/
+			}
 			continue;
 		}
 		if(frame_read[b] == FR_F) {
@@ -517,17 +551,27 @@ init:
 	}
 	b++;
 
+
+
+
 	len=b;
 	//no final do ciclo frame_read tem o tamanho de len bytes	
 
+
+
+
 	//decifrar os cabecalhos
-	if (frame_read[1]^frame_read[2]!=frame_read[3]){
+	if ((frame_read[1]^frame_read[2])!=frame_read[3]){
 		wrong = 1;
 	}
+
 	if (wrong == 1){
 		goto end;
 	}
 	
+
+
+
 	//primeiro mecanismo de destuffing do pacote (D1...Dn) e do BBC2 (1 byte)
 	for (i=4; i<len-1; i++){
 		if(frame_read[i]==0x7D && frame_read[i+1]==0x5E){
@@ -544,6 +588,9 @@ init:
 		}
 	}
 
+
+
+
 	//comparacao de BCC2 com o XOR do pacote (D1^D2^...^Dn)
 	for (i=4; i<len-2; i++){
 		BCC2 ^= frame_read[i];
@@ -551,6 +598,9 @@ init:
 	if (BCC2 != frame_read[len-2]){
 		wrong = 1;
 	}
+
+
+
 
 	//enviar RR ou REJ
 	if (wrong == 0){
@@ -563,7 +613,7 @@ init:
 		}
 
 		//transferencia da camada de aplicacao para o buffer	
-		for (i=4, j=0; i<len-1; i++, j++){
+		for (i=4, j=0; i<len-2; i++, j++){
 			buffer[j]=frame_read[i];
 		}
 		
@@ -588,11 +638,100 @@ end:
 		}
 	}
 
+
+
+
 	//retornar comp do array lido ou erro (-1)
 	return strlen(buffer);
 }
 
 int llclose(int port){
 
+	int state = 0, res = 0, bad = 0, countf = 0, b = 0, wrong = 0, len = 0, i = 0, j = 0;
+	unsigned char DISC[5], UA[5];
+	unsigned char frame_read[MAX_SIZE];
+	time_t oldtime;
+
+	/* DISC */
+	DISC[0] = FR_F;
+	DISC[1] = FR_A_TX;
+	DISC[2] = FR_C_DISC;
+	DISC[3] = DISC[1]^DISC[2];
+	DISC[4] = FR_F;
+
+	/* UA */
+	UA[0] = FR_F;
+	UA[1] = FR_A_TX;
+	UA[2] = FR_C_UA;
+	UA[3] = UA[1]^UA[2];
+	UA[4] = FR_F;
+
+init:
+	if((oldtime = time(NULL)) < 0){
+			perror("timer");
+			return -1;
+	}
+	//LEITURA DE DISC
+	while(state == 0){
+		res = read(port, &frame_read[b], 1);
+		if(res == 0) {
+			if(time(NULL) - oldtime >= 18){
+				fprintf(stderr, "Warning: time-out; no request received...\n");
+				return -1;
+			} else {
+				continue;
+			}
+		}
+		if(frame_read[b] == FR_F) {
+			countf++;
+		}
+		if(countf == 2){
+			countf = 0;
+			if(frame_read[b] == frame_read[b-1]){
+				b = 0;
+				frame_read[b] = FR_F;
+			} else {
+				state = 1;
+				break;
+			}
+		}
+		b++;
+	}
+
+	/*VER SE RECEBEU DISC CORRETAMENTE*/
+	if(strncmp(frame_read, DISC, 5) != 0) {
+		
+		//SE NAO RECEBE DISC VER SE E O UA
+		if(strncmp(frame_read, UA, 5) != 0){
+			//SE NAO FOR REPETIR..(VOLTAR PARA init:)
+			if(bad < 3) {
+				fprintf(stderr, "DISC message not received correctly; Trying again...\n");
+				bad++;
+				goto init;
+			} else {
+				fprintf(stderr, "Attempt limit reached; exiting...\n");
+				return -1;
+			}
+		}
+		//SE FOR O UA FAZ CLOSE
+		else {
+			fprintf(stderr, "llclose done!\n");
+			if (close(port) != 0){
+				perror("close");
+				return -1;
+			}
+		}
+		
+	} else {
+		fprintf(stderr, "GOOD DOGGY DOG RX, sending DISC...\n");
+
+		//ENVIAR DISC
+		res = write(port, DISC, 5);
+		fprintf(stderr, "\nDISC frame sent: |%x|%x|%x|%x|%x|;\t bytes sent: %d\n\n", DISC[0], DISC[1], DISC[2], DISC[3], DISC[4], res);
+	}
+
+
 	return 0;
+
 }
+
