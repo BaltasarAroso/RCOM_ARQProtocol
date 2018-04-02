@@ -1,5 +1,4 @@
 # RCOM_Lab1
-https://app.codacy.com/app/BaltasarAroso/RCOM_Lab1/dashboard
 
 This project consisted of the development and testing of a **data link protocol** as the first work of the Computer Networks curricular unit. For the data transmission was used an **asynchronous serial port**. The code must be prepared to identify, and handle cases of error, whether they refer to data or to communication failures. The project was successfully completed.
 
